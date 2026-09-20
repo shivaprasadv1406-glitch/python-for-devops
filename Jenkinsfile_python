@@ -7,30 +7,29 @@ pipeline{
 
 
     parameters {
-        choice choices: ['DEV', 'QA', 'PROD'], 
+        choice( 
+        choices: ['DEV', 'QA', 'PROD'], 
         description: 'Select deployment environment', 
         name: 'DEPLOY_ENV'
-    }
+        )
 
-    parameters {
-        booleanParam 
+        booleanParam( 
         defaultValue: true, 
         description: 'Run Security scan', 
         name: 'RUN_SECURITY_SCAN'
-    }
+        )
 
-    parameters {
-        booleanParam 
+        booleanParam (
         defaultValue: false, 
         description: 'Deploy application', 
         name: 'DEPLOY'
-    }
+        )
 
-    parameters {
-        string 
+        string(
         defaultValue: '1.0.0', 
         description: 'Application version', 
         name: 'VERSION'
+        )
     }
 
 
@@ -41,28 +40,32 @@ pipeline{
     options {
 
         //Add timestamps to console output
-        timestamps  
+        timestamps()  
 
 
         //Stop build that runs more than 10 minutes
-        timeout     
-        (activity: true, 
-        time: 10)
+        timeout(
+        activity: true, 
+        time: 10,
+        unit: 'MINUTES'
+        )
 
         //Keep only last 15 builds
-         buildDiscarder 
-         logRotator
-         (artifactDaysToKeepStr: '', 
+         buildDiscarder( 
+         logRotator(
+         artifactDaysToKeepStr: '', 
          artifactNumToKeepStr: '', 
          daysToKeepStr: '', 
-         numToKeepStr: '15')
+         numToKeepStr: '15'
+         )
+         )
 
          //no concurrent builds
-         disableConcurrentBuilds 
+         disableConcurrentBuilds( 
          abortPrevious: true
-
+         )
          //Skip automatic SCM checkout
-         skipDefaultCheckout true
+         skipDefaultCheckout(true)
     }
 
     // =================================================
@@ -209,7 +212,9 @@ pipeline{
 
                         nproc
 
-                        echo "Memory: " free -h
+                        echo "Memory: " 
+                        
+                        free -h
 
                        
                         '''
@@ -224,7 +229,7 @@ pipeline{
     // STAGE 5 - SECURITY SCAN
     // ================================================= 
 
-    stage('SECURITY SCAN'){
+    stage('Security scan'){
 
         when{
 
@@ -258,7 +263,7 @@ pipeline{
     // STAGE 5 - PACKAGE
     // ================================================= 
 
-    stage('package'){
+    stage('Package'){
         steps{
 
             echo "Creating artifact: ${ARTIFACT_NAME}"
@@ -272,9 +277,10 @@ pipeline{
             /*
             * Store artifact in Jenkins.
             */
-            archiveArtifacts
+            archiveArtifacts(
                 artifacts: "${ARTIFACT_NAME}",
                 fingerprint: true
+            )
         }
     }
 
@@ -287,17 +293,18 @@ pipeline{
             expression{
                 return params.DEPLOY
             }
+        }
 
             steps{
 
                 input(
-                    message: "Deploy ${APP_NAME} ${BUILD_VERSION} to ${params.DEPLOY.ENV}?",
+                    message: "Deploy ${APP_NAME} ${BUILD_VERSION} to ${params.DEPLOY_ENV}?",
                     ok: "Deploy"
                 )
             }
 
         }
-    }
+    
 
     // =================================================
     // STAGE 8 - DEPLOY
@@ -330,9 +337,10 @@ pipeline{
             '''
         }
     }
+}
     
     // =================================================
-    // STAGE 8 - DEPLOY
+    // POST DEPLOY
     // ================================================= 
 
     post {
