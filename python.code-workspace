@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../python"
+		},
+		{
+			"path": "../DevOps_Git"
+		},
+		{
+			"path": "../jenkins"
+		}
+	],
+	"settings": {}
+}
