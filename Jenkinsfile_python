@@ -1,20 +1,382 @@
 pipeline{
     agent any
+
+// =================================================
+// Parameters
+// =================================================  
+
+
+    parameters {
+        choice choices: ['DEV', 'QA', 'PROD'], 
+        description: 'Select deployment environment', 
+        name: 'DEPLOY_ENV'
+    }
+
+    parameters {
+        booleanParam 
+        defaultValue: true, 
+        description: 'Run Security scan', 
+        name: 'RUN_SECURITY_SCAN'
+    }
+
+    parameters {
+        booleanParam 
+        defaultValue: false, 
+        description: 'Deploy application', 
+        name: 'DEPLOY'
+    }
+
+    parameters {
+        string 
+        defaultValue: '1.0.0', 
+        description: 'Application version', 
+        name: 'VERSION'
+    }
+
+
+    // =================================================
+    // Options
+    // =================================================
+
+    options {
+
+        //Add timestamps to console output
+        timestamps  
+
+
+        //Stop build that runs more than 10 minutes
+        timeout     
+        (activity: true, 
+        time: 10)
+
+        //Keep only last 15 builds
+         buildDiscarder 
+         logRotator
+         (artifactDaysToKeepStr: '', 
+         artifactNumToKeepStr: '', 
+         daysToKeepStr: '', 
+         numToKeepStr: '15')
+
+         //no concurrent builds
+         disableConcurrentBuilds 
+         abortPrevious: true
+
+         //Skip automatic SCM checkout
+         skipDefaultCheckout true
+    }
+
+    // =================================================
+    // ENVIRONMENT
+    // =================================================
+
+    environment {
+        APP_NAME = "Jenkins_practice"
+        BUILD_VERSION = "${params.VERSION}"
+        ARTIFACT_NAME = "app-${BUILD_VERSION}.tar.gz"
+    }
+
+
+    // =================================================
+    // STAGES
+    // =================================================
     stages{
-        stage('STAGE1'){
+        
+    // =================================================
+    // STAGE 1 - CHECKOUT
+    // =================================================
+
+        stage('Checkout'){
             steps{
+                echo "Checking out source code..."
+                
+                checkout scm
+
+                sh '''
+
+                echo "Current Directory:"
+                pwd
+
+                echo "Files:"
+                ls -lrta
+                '''
+
 
             }
         }
-        stage('STAGE2'){
+
+    // =================================================
+    // STAGE 2 - ENVIRONMENT INFORMATION
+    // =================================================    
+        stage('Environment Information'){
             steps{
+
+                echo "Application : ${APP_NAME}"
+                echo "Version     : ${BUILD_VERSION}"
+                echo "Environment : ${params.DEPLOY_ENV}"
+                echo "Build       : ${BUILD_NUMBER}"
+                echo "Workspace   : ${WORKSPACE}"
+
+                sh '''
+                    echo "Operating system:"
+                    uname -a
+
+                    echo "Current Suer:"
+                    whoami
+
+                    echo "Disk usage:"
+                    df -h
+
+                '''
 
             }
         }
-        stage('STAGE3'){
+
+    // =================================================
+    // STAGE 3 - BUILD
+    // ================================================= 
+        stage('Build'){
             steps{
+
+                echo "Building application"
+
+                sh '''
+                  mkdir -p build
+
+                  echo "Application: ${APP_NAME}" > build/info.txt
+                  echo "Version: ${BUILD_VERSION}" >> build/info.txt
+                  echo "Build Number: ${BUILD_NUMBER}" >> build/info.txt
+
+                  cp -r app build/app
+
+                  echo "Build Completed"
+
+                  cat build/info.txt
+
+                '''
 
             }
         }
+
+    // =================================================
+    // STAGE 4 - PARALLEL TESTS
+    // ================================================= 
+
+        stage('Tests'){
+
+            parallel{
+                stage('Unit Test'){
+
+                    steps{
+
+                        echo "Running unit tests"
+
+                        sh '''
+                        
+                        echo "Unit test started"
+
+                        test -f app/index.html
+
+                        echo "Unit test PASSED"
+                        '''
+                    }
+                }
+
+                stage('Lint Check'){
+
+                    steps{
+
+                        echo "Running lint check"
+
+                        sh '''
+                        
+                        echo "Checking HTML file"
+
+                        test -s app/index.html
+
+                        echo "Lint check PASSED"
+                        '''
+                    }
+                }
+                
+                stage('System Information'){
+
+                    steps{
+
+                       
+                        sh '''
+                        
+                        echo "CPU:"
+
+                        nproc
+
+                        echo "Memory: " free -h
+
+                       
+                        '''
+                    }
+                }
+
+            }
+            
+        }
+    
+    // =================================================
+    // STAGE 5 - SECURITY SCAN
+    // ================================================= 
+
+    stage('SECURITY SCAN'){
+
+        when{
+
+            expression{
+                return params.RUN_SECURITY_SCAN
+            }
+        }
+
+        steps{
+
+            echo "Running security scan"
+
+            sh '''
+                echo "Security scan simulation"
+
+                echo "Checking for obvious secret files..."
+
+                if find . -type f \\( -name "*.pem" -o -name "*.key" \\) | grep -q .;
+                then
+                    echo "Potential secret file detected"
+                    exit 1
+                fi
+
+                echo "Security scan PASSED"
+
+            '''
+        }
+    }
+
+    // =================================================
+    // STAGE 5 - PACKAGE
+    // ================================================= 
+
+    stage('package'){
+        steps{
+
+            echo "Creating artifact: ${ARTIFACT_NAME}"
+
+            sh '''
+                tar -czf "${ARTIFACT_NAME}" build/
+
+                ls -lh "${ARTIFACT_NAME}"
+            '''
+
+            /*
+            * Store artifact in Jenkins.
+            */
+            archiveArtifacts
+                artifacts: "${ARTIFACT_NAME}",
+                fingerprint: true
+        }
+    }
+
+    // =================================================
+    // STAGE 7 - DEPLOY APPROVAL
+    // ================================================= 
+
+    stage('Deployment Approval'){
+        when{
+            expression{
+                return params.DEPLOY
+            }
+
+            steps{
+
+                input(
+                    message: "Deploy ${APP_NAME} ${BUILD_VERSION} to ${params.DEPLOY.ENV}?",
+                    ok: "Deploy"
+                )
+            }
+
+        }
+    }
+
+    // =================================================
+    // STAGE 8 - DEPLOY
+    // ================================================= 
+
+    stage('Deploy'){
+
+        when{
+
+            expression{
+                return params.DEPLOY
+            }
+        }
+
+        steps{
+            echo "Deploying ${APP_NAME}"
+            echo "Version: ${BUILD_VERSION}"
+            echo "Environment: ${params.DEPLOY_ENV}"
+
+            sh '''
+                echo "Starting deployment..."
+
+                mkdir -p deployment/${DEPLOY_ENV}
+
+                cp "${ARTIFACT_NAME}" \
+                    deployment/${DEPLOY_ENV}/
+
+                echo "Deployment completed."
+
+            '''
+        }
+    }
+    
+    // =================================================
+    // STAGE 8 - DEPLOY
+    // ================================================= 
+
+    post {
+
+        always {
+
+            echo 'Pipeline execution completed.'
+
+            echo "Build number: ${BUILD_NUMBER}"
+        }
+
+
+        success {
+
+            echo '======================================'
+            echo 'PIPELINE SUCCESS'
+            echo '======================================'
+        }
+
+
+        failure {
+
+            echo '======================================'
+            echo 'PIPELINE FAILED'
+            echo 'Check Console Output'
+            echo '======================================'
+        }
+
+
+        unstable {
+
+            echo 'Pipeline completed with UNSTABLE status.'
+        }
+
+
+        cleanup {
+
+            echo 'Performing cleanup...'
+
+            /*
+             * Remove workspace after execution.
+             */
+            deleteDir()
+        }
+
     }
 }
